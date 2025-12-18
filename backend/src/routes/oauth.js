@@ -2,6 +2,7 @@ import express from "express";
 import axios from "axios";
 import crypto from "crypto";
 import { SCOPES, HUBSPOT_AUTH_URL, HUBSPOT_TOKEN_URL } from "../config/hubspot.js";
+import { TokenStore } from "../services/tokenStore.js";
 
 const router = express.Router();
 
@@ -33,9 +34,20 @@ router.get("/oauth/callback", async (req, res) => {
             { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
         );
 
+        const hub_id = tokenRes.data.hub_id;
+
+        // Save to Store
+        await TokenStore.saveToken(hub_id, {
+            access_token: tokenRes.data.access_token,
+            refresh_token: tokenRes.data.refresh_token,
+            expires_in: tokenRes.data.expires_in
+        });
+
         res.json({
             success: true,
-            hub_id: tokenRes.data.hub_id
+            hub_id: hub_id,
+            access_token: tokenRes.data.access_token,
+            message: "Token saved to server."
         });
     } catch (err) {
         res.status(500).json({ error: "OAuth failed" });
