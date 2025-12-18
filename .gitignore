@@ -1,0 +1,11 @@
+
+
+# HubSpot config file
+# HubSpot config file
+hubspot.config.yml
+
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
