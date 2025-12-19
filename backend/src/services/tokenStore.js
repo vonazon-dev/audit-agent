@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import axios from 'axios';
+import { HUBSPOT_TOKEN_URL } from '../config/hubspot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '../../data');
@@ -22,7 +24,7 @@ export class TokenStore {
             try {
                 tokens = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
             } catch (e) {
-                console.error("Error reading token file, initializing fresh.", e);
+                console.error("Error reading token file, initializing fresh.");
             }
         }
 
@@ -33,7 +35,6 @@ export class TokenStore {
         tokens['latest_hub_id'] = hubId; // Pointer to most recently auth'd account
 
         fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
-        console.log(`Token saved for Hub ID: ${hubId}`);
     }
 
     static async getToken(hubId) {
@@ -53,8 +54,41 @@ export class TokenStore {
                 };
             }
         } catch (e) {
-            console.error("Error reading token file", e);
+            console.error("Error reading token file");
         }
         return null;
+    }
+
+    /**
+     * Refresh an expired access token using the refresh token
+     * @param {string} hubId - The HubSpot portal ID
+     * @returns {Promise<Object>} - Updated token data
+     */
+    static async refreshToken(hubId) {
+        const stored = await this.getToken(hubId);
+        if (!stored || !stored.refresh_token) {
+            throw new Error("No refresh token available");
+        }
+
+        const response = await axios.post(
+            HUBSPOT_TOKEN_URL,
+            new URLSearchParams({
+                grant_type: "refresh_token",
+                client_id: process.env.HUBSPOT_CLIENT_ID,
+                client_secret: process.env.HUBSPOT_CLIENT_SECRET,
+                refresh_token: stored.refresh_token
+            }),
+            { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+        );
+
+        const newTokenData = {
+            access_token: response.data.access_token,
+            refresh_token: response.data.refresh_token,
+            expires_in: response.data.expires_in,
+            expires_at: Date.now() + (response.data.expires_in * 1000)
+        };
+
+        await this.saveToken(hubId, newTokenData);
+        return newTokenData;
     }
 }

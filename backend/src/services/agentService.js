@@ -3,9 +3,10 @@
  * Translates deterministic facts into executive narratives using OpenAI.
  * ENFORCES strict input/output contracts via Zod schema validation.
  */
-import { ChatOpenAI } from "@langchain/openai";
+import { AzureChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { z } from "zod";
+import { azureOpenAIConfig } from "../config/azure-openai.js";
 
 // --- Output Schema (The Contract) ---
 const AuditOutputSchema = z.object({
@@ -16,14 +17,14 @@ const AuditOutputSchema = z.object({
 });
 
 export class AgentService {
-    constructor(apiKey) {
-        this.apiKey = apiKey || process.env.OPENAI_API_KEY;
-
-        // Initialize OpenAI with streaming
-        this.llm = new ChatOpenAI({
-            modelName: "gpt-4o",
+    constructor() {
+        // Initialize Azure OpenAI with streaming
+        this.llm = new AzureChatOpenAI({
+            azureOpenAIApiKey: azureOpenAIConfig.apiKey,
+            azureOpenAIApiInstanceName: "openai-model-mayank", // Derived from endpoint
+            azureOpenAIApiDeploymentName: azureOpenAIConfig.deploymentName,
+            azureOpenAIApiVersion: azureOpenAIConfig.apiVersion,
             temperature: 0.3, // Lower for more consistent, factual output
-            openAIApiKey: this.apiKey,
             streaming: true
         });
     }
@@ -113,7 +114,7 @@ Provide:
         });
         const chain = prompt.pipe(llmWithStructure);
 
-        console.log("--- Agent Input ---\n", JSON.stringify(agentInput, null, 2));
+        // Debug logging removed for production security
 
         // 4. Execute with streaming if callback provided
         let output;
@@ -137,7 +138,7 @@ Provide:
             });
         }
 
-        console.log("--- AI Output ---\n", JSON.stringify(output, null, 2));
+        // Debug logging removed for production security
 
         // 5. Validate
         return this.validateOutput(output);

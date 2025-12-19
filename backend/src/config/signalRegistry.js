@@ -87,7 +87,7 @@ export const SIGNAL_REGISTRY = {
         impacts: [
             "Deals are invisible in the board view",
             "Sales process adherence cannot be verified",
-            "Conversion rates between stages are calculable"
+            "Conversion rates between stages are incalculable"
         ]
     }
 };

@@ -22,9 +22,10 @@ export class HubSpotClient {
      * Generic helper to fetch all records of a given object type using cursor pagination.
      * @param {string} objectType - 'contacts', 'companies', or 'deals'
      * @param {string[]} properties - List of properties to retrieve
+     * @param {number} maxRecords - Maximum records to fetch (default 10000)
      * @returns {Promise<Array>} - Array of CRM objects
      */
-    async fetchAll(objectType, properties) {
+    async fetchAll(objectType, properties, maxRecords = 10000) {
         let allResults = [];
         let after = undefined;
         const limit = 100; // Max limit for basic GET requests
@@ -42,6 +43,12 @@ export class HubSpotClient {
                 const { results, paging } = response.data;
                 allResults = allResults.concat(results);
 
+                // Enforce maximum record limit to prevent OOM
+                if (allResults.length >= maxRecords) {
+                    console.warn(`${objectType}: Reached max record limit (${maxRecords}). Results truncated.`);
+                    break;
+                }
+
                 // Check for next page
                 if (paging && paging.next && paging.next.after) {
                     after = paging.next.after;
@@ -53,9 +60,6 @@ export class HubSpotClient {
             return allResults;
         } catch (error) {
             console.error(`Error fetching ${objectType}:`, error.message);
-            if (error.response) {
-                console.error("HubSpot API Error Details:", JSON.stringify(error.response.data));
-            }
             throw new Error(`Failed to fetch ${objectType}`);
         }
     }

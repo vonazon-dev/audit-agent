@@ -7,30 +7,48 @@ import { AgentService } from "../services/agentService.js";
 const router = express.Router();
 
 /**
+ * Helper to get valid access token, refreshing if necessary
+ */
+async function getValidToken(hub_id) {
+    if (!hub_id) {
+        return { error: "Missing hub_id", status: 400 };
+    }
+
+    const stored = await TokenStore.getToken(hub_id);
+    if (!stored) {
+        return { error: "No stored token found. Please reconnect HubSpot.", status: 401 };
+    }
+
+    // Check if token needs refresh (with 5 minute buffer)
+    const needsRefresh = stored.expires_at && (Date.now() > stored.expires_at - 5 * 60 * 1000);
+
+    if (needsRefresh && stored.refresh_token) {
+        try {
+            const refreshed = await TokenStore.refreshToken(hub_id);
+            return { access_token: refreshed.access_token, hub_id };
+        } catch (err) {
+            console.error("Token refresh failed:", err.message);
+            return { error: "Session expired. Please reconnect HubSpot.", status: 401 };
+        }
+    }
+
+    return { access_token: stored.access_token, hub_id };
+}
+
+/**
  * Non-streaming audit endpoint (original behavior)
  */
 router.post("/audit", async (req, res) => {
     try {
-        let { hub_id } = req.body;
-        let access_token = null;
+        const { hub_id } = req.body;
 
-        if (!hub_id) {
-            return res.status(400).json({ error: "Missing hub_id" });
-        }
-
-        // Try to load from store if missing
-        const stored = await TokenStore.getToken(hub_id);
-        if (stored) {
-            access_token = stored.access_token;
-            if (!hub_id) hub_id = stored.hub_id;
-        }
-
-        if (!access_token) {
-            return res.status(400).json({ error: "Missing access_token and no stored token found." });
+        const tokenResult = await getValidToken(hub_id);
+        if (tokenResult.error) {
+            return res.status(tokenResult.status).json({ error: tokenResult.error });
         }
 
         // 1. Fetch Data
-        const hubSpotClient = new HubSpotClient(access_token);
+        const hubSpotClient = new HubSpotClient(tokenResult.access_token);
 
         // Parallel fetching for performance
         const [contacts, companies, deals] = await Promise.all([
@@ -49,16 +67,16 @@ router.post("/audit", async (req, res) => {
 
         // 4. Return Final Combined Response
         res.json({
-            hub_id,
+            hub_id: tokenResult.hub_id,
             audit_facts: facts,
             ai_interpretation: aiOutput
         });
 
     } catch (error) {
-        console.error("Audit processing failed:", error);
+        console.error("Audit processing failed:", error.message);
         res.status(500).json({
             error: "Audit failed",
-            details: error.message
+            details: process.env.NODE_ENV === "development" ? error.message : undefined
         });
     }
 });
@@ -68,22 +86,11 @@ router.post("/audit", async (req, res) => {
  */
 router.post("/audit/stream", async (req, res) => {
     try {
-        let { hub_id } = req.body;
-        let access_token = null;
+        const { hub_id } = req.body;
 
-        if (!hub_id) {
-            return res.status(400).json({ error: "Missing hub_id" });
-        }
-
-        // Try to load from store if missing
-        const stored = await TokenStore.getToken(hub_id);
-        if (stored) {
-            access_token = stored.access_token;
-            if (!hub_id) hub_id = stored.hub_id;
-        }
-
-        if (!access_token) {
-            return res.status(400).json({ error: "Missing access_token and no stored token found." });
+        const tokenResult = await getValidToken(hub_id);
+        if (tokenResult.error) {
+            return res.status(tokenResult.status).json({ error: tokenResult.error });
         }
 
         // Set up SSE headers
@@ -93,7 +100,7 @@ router.post("/audit/stream", async (req, res) => {
         res.flushHeaders();
 
         // 1. Fetch Data
-        const hubSpotClient = new HubSpotClient(access_token);
+        const hubSpotClient = new HubSpotClient(tokenResult.access_token);
         res.write(`data: ${JSON.stringify({ status: "fetching", message: "Fetching HubSpot data..." })}\n\n`);
 
         const [contacts, companies, deals] = await Promise.all([
@@ -122,15 +129,15 @@ router.post("/audit/stream", async (req, res) => {
         // 4. Send final complete response
         res.write(`data: ${JSON.stringify({
             status: "complete",
-            hub_id,
+            hub_id: tokenResult.hub_id,
             ai_interpretation: aiOutput
         })}\n\n`);
 
         res.end();
 
     } catch (error) {
-        console.error("Streaming audit failed:", error);
-        res.write(`data: ${JSON.stringify({ status: "error", error: error.message })}\n\n`);
+        console.error("Streaming audit failed:", error.message);
+        res.write(`data: ${JSON.stringify({ status: "error", error: "Audit failed" })}\n\n`);
         res.end();
     }
 });
