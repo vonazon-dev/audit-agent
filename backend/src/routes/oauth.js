@@ -33,6 +33,7 @@ router.get("/install", (req, res) => {
         `&scope=${encodeURIComponent(SCOPES)}` +
         `&state=${state}`;
 
+    console.log("auth url", authUrl)
     res.redirect(authUrl);
 });
 
